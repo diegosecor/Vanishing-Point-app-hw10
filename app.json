@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "vanishing-point-app",
+    "name": "Vanishing Point",
     "slug": "vanishing-point-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "vanishingpointapp",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
     "ios": {
       "icon": "./assets/expo.icon"
     },
@@ -31,6 +31,20 @@
           "backgroundColor": "#208AEF",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Vanishing Point uses the camera to show the live view with the horizon line.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "Vanishing Point uses motion sensors to keep the horizon line level as you tilt the phone."
         }
       ]
     ],
