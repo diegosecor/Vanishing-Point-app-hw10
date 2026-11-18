@@ -6,7 +6,18 @@ import { Directory, File, Paths } from 'expo-file-system';
 
 import { LINE_PALETTE, LINE_STYLES, LINE_WIDTHS, STAR_LABELS } from '@/constants/style';
 
-import type { DrawnLine, Overlay, Perspective, PhotoEntry, SavedStar, Settings } from './types';
+import { FAN_LINE_COUNT, fanAngle } from './geometry';
+import { clipRay } from './projection';
+import {
+  OVERLAY_WIDTH,
+  type DrawnLine,
+  type Guide,
+  type Overlay,
+  type Perspective,
+  type PhotoEntry,
+  type SavedStar,
+  type Settings,
+} from './types';
 
 const ROOT = 'vanishing-point';
 const SETTINGS_FILE = 'settings.json';
@@ -89,31 +100,63 @@ function parseSettings(raw: unknown): Settings {
   };
 }
 
-function parseStar(raw: unknown): SavedStar | null {
+function parseGuide(raw: unknown): Guide | null {
   if (!isObj(raw)) return null;
-  if (!isStr(raw.id) || !isNum(raw.x) || !isNum(raw.y) || !isNum(raw.angle) || !isStr(raw.color))
-    return null;
-  if (!(STAR_LABELS as readonly unknown[]).includes(raw.label)) return null;
-  const sel = raw.selectedLine;
-  return {
-    id: raw.id,
-    label: raw.label as SavedStar['label'],
-    color: raw.color,
-    x: raw.x,
-    y: raw.y,
-    angle: raw.angle,
-    selectedLine: isNum(sel) && sel >= 0 && sel < 12 ? Math.round(sel) : null,
-  };
+  const { x1, y1, x2, y2, color, width, opacity } = raw;
+  if (!isNum(x1) || !isNum(y1) || !isNum(x2) || !isNum(y2) || !isNum(width) || !isNum(opacity)) return null;
+  if (!isStr(color)) return null;
+  return { x1, y1, x2, y2, color, width, opacity };
+}
+
+/** Photos saved by the first version stored a fan angle per star; rebuild its guide lines. */
+function legacyFan(star: Record<string, unknown>, color: string, rect: { w: number; h: number }): Guide[] {
+  if (!isNum(star.angle) || !isNum(star.x) || !isNum(star.y)) return [];
+  const sel = isNum(star.selectedLine) ? star.selectedLine : null;
+  const guides: Guide[] = [];
+  for (let i = 0; i < FAN_LINE_COUNT; i++) {
+    const a = fanAngle(star.angle, i);
+    const seg = clipRay({ x: star.x, y: star.y }, { x: Math.cos(a), y: Math.sin(a) }, rect);
+    if (!seg) continue;
+    const selected = sel === i;
+    guides.push({
+      ...seg,
+      color,
+      width: selected ? 7.5 : 2.5,
+      opacity: sel !== null && !selected ? 0.22 : 0.9,
+    });
+  }
+  return guides;
 }
 
 function parseOverlay(raw: unknown): Overlay | null {
   if (!isObj(raw) || !isNum(raw.height) || raw.height <= 0) return null;
+  const height = raw.height;
   const h = raw.horizon;
-  if (!isObj(h) || !isNum(h.x1) || !isNum(h.y1) || !isNum(h.x2) || !isNum(h.y2)) return null;
-  const stars = Array.isArray(raw.stars)
-    ? raw.stars.map(parseStar).filter((s): s is SavedStar => s !== null)
+  const horizon =
+    isObj(h) && isNum(h.x1) && isNum(h.y1) && isNum(h.x2) && isNum(h.y2)
+      ? { x1: h.x1, y1: h.y1, x2: h.x2, y2: h.y2 }
+      : null;
+  const stars: SavedStar[] = [];
+  const guides: Guide[] = Array.isArray(raw.guides)
+    ? raw.guides.map(parseGuide).filter((g): g is Guide => g !== null)
     : [];
-  return { height: raw.height, horizon: { x1: h.x1, y1: h.y1, x2: h.x2, y2: h.y2 }, stars };
+  const legacy = !Array.isArray(raw.guides);
+  if (Array.isArray(raw.stars)) {
+    for (const s of raw.stars) {
+      if (!isObj(s) || !isStr(s.id) || !isNum(s.x) || !isNum(s.y) || !isStr(s.color)) continue;
+      if (!(STAR_LABELS as readonly unknown[]).includes(s.label)) continue;
+      stars.push({
+        id: s.id,
+        label: s.label as SavedStar['label'],
+        color: s.color,
+        x: s.x,
+        y: s.y,
+        visible: typeof s.visible === 'boolean' ? s.visible : true,
+      });
+      if (legacy) guides.push(...legacyFan(s, s.color, { w: OVERLAY_WIDTH, h: height }));
+    }
+  }
+  return { height, horizon, stars, guides };
 }
 
 function parseLine(raw: unknown): DrawnLine | null {

@@ -29,7 +29,7 @@ export default function GalleryScreen() {
         style: 'destructive',
         onPress: () => {
           deletePhoto(photo.id).catch((e) =>
-            Alert.alert('Could not delete', e instanceof Error ? e.message : 'Please try again.')
+            Alert.alert('Could not delete', e instanceof Error ? e.message : 'Please try again.'),
           );
         },
       },
@@ -59,7 +59,8 @@ export default function GalleryScreen() {
                   onLongPress={() => confirmDelete(item)}
                   accessibilityRole="button"
                   accessibilityLabel={`Open photo from ${formatDate(item.createdAt)}`}
-                  style={({ pressed }) => [styles.thumb, { height: cellH, opacity: pressed ? 0.7 : 1 }]}>
+                  style={({ pressed }) => [styles.thumb, { height: cellH, opacity: pressed ? 0.7 : 1 }]}
+                >
                   <Image
                     source={{ uri: photoUri(item.fileName) }}
                     style={StyleSheet.absoluteFill}

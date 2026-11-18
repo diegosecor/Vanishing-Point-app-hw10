@@ -94,17 +94,15 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       }
       return id;
     },
-    [commitPhotos]
+    [commitPhotos],
   );
 
   const updatePhotoLines = useCallback(
     async (id: string, lines: DrawnLine[]) => {
-      const next = photosRef.current.map((p) =>
-        p.id === id ? { ...p, lines, updatedAt: Date.now() } : p
-      );
+      const next = photosRef.current.map((p) => (p.id === id ? { ...p, lines, updatedAt: Date.now() } : p));
       await commitPhotos(next);
     },
-    [commitPhotos]
+    [commitPhotos],
   );
 
   const deletePhoto = useCallback(
@@ -118,7 +116,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         console.warn('Photo removed from gallery but file could not be deleted', e);
       }
     },
-    [commitPhotos]
+    [commitPhotos],
   );
 
   const value = useMemo<AppStore>(
@@ -133,7 +131,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       updatePhotoLines,
       deletePhoto,
     }),
-    [ready, settings, photos, draft, updateSettings, saveDraft, updatePhotoLines, deletePhoto]
+    [ready, settings, photos, draft, updateSettings, saveDraft, updatePhotoLines, deletePhoto],
   );
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

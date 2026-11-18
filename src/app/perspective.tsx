@@ -1,9 +1,11 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { RotatedScreen } from '@/components/rotating';
 import { ScreenHeader, goToCamera } from '@/components/ui';
 import { BLUE, Fonts, HAIRLINE, INK, MUTED, WHITE } from '@/constants/style';
 import type { Perspective } from '@/lib/types';
+import { useUiRotation } from '@/hooks/use-ui-rotation';
 import { useAppStore } from '@/store/app-store';
 
 const OPTIONS: { value: Perspective; title: string; text: string }[] = [
@@ -27,38 +29,46 @@ const OPTIONS: { value: Perspective; title: string; text: string }[] = [
 export default function PerspectiveScreen() {
   const insets = useSafeAreaInsets();
   const { settings, updateSettings } = useAppStore();
+  const rotation = useUiRotation();
 
   return (
-    <View style={styles.root}>
-      <ScreenHeader title="PERSPECTIVE" />
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}>
-        <Text style={styles.intro}>How many vanishing points? This sets how many stars you can place.</Text>
-        {OPTIONS.map((opt) => {
-          const selected = settings.perspective === opt.value;
-          return (
-            <Pressable
-              key={opt.value}
-              onPress={() => {
-                updateSettings({ perspective: opt.value });
-                goToCamera();
-              }}
-              accessibilityRole="radio"
-              accessibilityState={{ selected }}
-              style={({ pressed }) => [
-                styles.option,
-                selected && styles.optionSelected,
-                { opacity: pressed ? 0.6 : 1 },
-              ]}>
-              <View style={styles.optionHead}>
-                <Text style={[styles.optionTitle, selected && styles.optionTitleSelected]}>{opt.title}</Text>
-                <Text style={styles.optionMark}>{selected ? '[■]' : '[ ]'}</Text>
-              </View>
-              <Text style={styles.optionText}>{opt.text}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-    </View>
+    <RotatedScreen rotation={rotation}>
+      <View style={styles.root}>
+        <ScreenHeader title="PERSPECTIVE" />
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}>
+          <Text style={styles.intro}>
+            How many vanishing points? This sets how many points you can place.
+          </Text>
+          {OPTIONS.map((opt) => {
+            const selected = settings.perspective === opt.value;
+            return (
+              <Pressable
+                key={opt.value}
+                onPress={() => {
+                  updateSettings({ perspective: opt.value });
+                  goToCamera();
+                }}
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
+                style={({ pressed }) => [
+                  styles.option,
+                  selected && styles.optionSelected,
+                  { opacity: pressed ? 0.6 : 1 },
+                ]}
+              >
+                <View style={styles.optionHead}>
+                  <Text style={[styles.optionTitle, selected && styles.optionTitleSelected]}>
+                    {opt.title}
+                  </Text>
+                  <Text style={styles.optionMark}>{selected ? '[■]' : '[ ]'}</Text>
+                </View>
+                <Text style={styles.optionText}>{opt.text}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+    </RotatedScreen>
   );
 }
 

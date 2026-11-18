@@ -30,6 +30,7 @@ import {
   WHITE,
 } from '@/constants/style';
 import { makeId } from '@/lib/geometry';
+import { clipRay } from '@/lib/projection';
 import { photoUri } from '@/lib/storage';
 import { OVERLAY_WIDTH, type DrawnLine, type Overlay, type Perspective, type Point } from '@/lib/types';
 import { useAppStore } from '@/store/app-store';
@@ -44,10 +45,13 @@ function snapVertical(start: Point, end: Point, overlay: Overlay, perspective: P
   if (perspective === 3 && vp3) {
     dx = vp3.x - start.x;
     dy = vp3.y - start.y;
-  } else {
+  } else if (overlay.horizon) {
     // Perpendicular to the captured horizon (accounts for phone roll).
     dx = -(overlay.horizon.y2 - overlay.horizon.y1);
     dy = overlay.horizon.x2 - overlay.horizon.x1;
+  } else {
+    dx = 0;
+    dy = 1;
   }
   const len = Math.hypot(dx, dy);
   if (len < 1e-6) return end;
@@ -73,6 +77,8 @@ export default function EditorScreen() {
       : null;
 
   const [lines, setLines] = useState<DrawnLine[]>(() => photo?.lines ?? []);
+  /** 'free' = draw by dragging; otherwise the id of the point new lines start from. */
+  const [mode, setMode] = useState<string>(() => base?.overlay.stars[0]?.id ?? 'free');
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [vertical, setVertical] = useState(false);
@@ -86,7 +92,7 @@ export default function EditorScreen() {
     () => () => {
       if (toastTimer.current) clearTimeout(toastTimer.current);
     },
-    []
+    [],
   );
 
   if (!base) {
@@ -117,23 +123,44 @@ export default function EditorScreen() {
     return { x: e.nativeEvent.locationX * unitsPerPx, y: e.nativeEvent.locationY * unitsPerPx };
   }
 
-  function lineFrom(start: Point, rawEnd: Point): DrawnLine {
-    const end = vertical ? snapVertical(start, rawEnd, overlay, perspective) : rawEnd;
+  const fromStar = overlay.stars.find((s) => s.id === mode) ?? null;
+
+  function styled(seg: { x1: number; y1: number; x2: number; y2: number }): DrawnLine {
     return {
       id: 'pending',
-      x1: start.x,
-      y1: start.y,
-      x2: end.x,
-      y2: end.y,
+      ...seg,
       width: settings.lineWidth,
       style: settings.lineStyle,
       color: settings.lineColor,
     };
   }
 
+  /** From the selected point, through the finger, to the edge of the photo. */
+  function lineFromPoint(touch: Point): DrawnLine | null {
+    if (!fromStar) return null;
+    const dx = touch.x - fromStar.x;
+    const dy = touch.y - fromStar.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1) return null;
+    const seg = clipRay(
+      { x: fromStar.x, y: fromStar.y },
+      { x: dx / len, y: dy / len },
+      { w: OVERLAY_WIDTH, h: overlay.height },
+    );
+    return seg ? styled(seg) : null;
+  }
+
+  function lineFrom(start: Point, rawEnd: Point): DrawnLine | null {
+    if (fromStar) return lineFromPoint(rawEnd);
+    const end = vertical ? snapVertical(start, rawEnd, overlay, perspective) : rawEnd;
+    return styled({ x1: start.x, y1: start.y, x2: end.x, y2: end.y });
+  }
+
   function onGrant(e: GestureResponderEvent) {
-    drawStart.current = toUnits(e);
-    setPending(null);
+    const p = toUnits(e);
+    drawStart.current = p;
+    // From a point a single tap is enough, so preview right away.
+    setPending(fromStar ? lineFromPoint(p) : null);
   }
 
   function onMove(e: GestureResponderEvent) {
@@ -148,7 +175,7 @@ export default function EditorScreen() {
     setPending(null);
     if (!start) return;
     const line = lineFrom(start, toUnits(e));
-    if (Math.hypot(line.x2 - line.x1, line.y2 - line.y1) < MIN_LINE_LENGTH) return;
+    if (!line || Math.hypot(line.x2 - line.x1, line.y2 - line.y1) < MIN_LINE_LENGTH) return;
     setLines((prev) => [...prev, { ...line, id: makeId() }]);
     setDirty(true);
   }
@@ -208,7 +235,7 @@ export default function EditorScreen() {
       [
         { text: 'Keep editing', style: 'cancel' },
         { text: 'Discard', style: 'destructive', onPress: goToCamera },
-      ]
+      ],
     );
   }
 
@@ -227,7 +254,7 @@ export default function EditorScreen() {
         {dispW > 0 && (
           <View style={{ width: dispW, height: dispH }}>
             <Image source={{ uri: base.uri }} style={StyleSheet.absoluteFill} contentFit="cover" />
-            <OverlayLayer overlay={overlay} lines={lines} pendingLine={pending} />
+            <OverlayLayer overlay={overlay} lines={lines} pendingLine={pending} activeStarId={fromStar?.id} />
             <View
               style={StyleSheet.absoluteFill}
               onStartShouldSetResponder={() => true}
@@ -249,6 +276,55 @@ export default function EditorScreen() {
 
       <View style={[styles.tools, { paddingBottom: insets.bottom + 8 }]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+          <Text style={styles.rowLabel}>FROM</Text>
+          {overlay.stars.map((star) => {
+            const selected = mode === star.id;
+            return (
+              <Pressable
+                key={star.id}
+                onPress={() => setMode(star.id)}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                accessibilityLabel={`Draw lines from ${star.label}`}
+                style={[
+                  styles.pointChip,
+                  { backgroundColor: star.color, borderColor: selected ? BLUE : star.color },
+                  selected && styles.pointChipSelected,
+                ]}
+              >
+                <Text style={styles.pointChipText}>{star.label}</Text>
+              </Pressable>
+            );
+          })}
+          <Pressable
+            onPress={() => setMode('free')}
+            style={[styles.chip, mode === 'free' && styles.chipSelected]}
+            accessibilityRole="button"
+            accessibilityState={{ selected: mode === 'free' }}
+            accessibilityLabel="Free drawing"
+          >
+            <Text style={[styles.chipText, mode === 'free' && styles.chipTextSelected]}>Free</Text>
+          </Pressable>
+          {mode === 'free' && (
+            <Pressable
+              onPress={() => setVertical((v) => !v)}
+              style={[styles.chip, vertical && styles.chipSelected]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: vertical }}
+              accessibilityLabel="Vertical lines"
+            >
+              <Text style={[styles.chipText, vertical && styles.chipTextSelected]}>
+                {vertical
+                  ? perspective === 3 && overlay.stars.some((s) => s.label === 'VP3')
+                    ? '↕ to VP3'
+                    : '↕ parallel'
+                  : '↕ vertical'}
+              </Text>
+            </Pressable>
+          )}
+        </ScrollView>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
           <Text style={styles.rowLabel}>WIDTH</Text>
           {LINE_WIDTHS.map((opt) => {
             const selected = settings.lineWidth === opt.value;
@@ -259,7 +335,8 @@ export default function EditorScreen() {
                 style={[styles.chip, selected && styles.chipSelected]}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
-                accessibilityLabel={`Line width ${opt.label}`}>
+                accessibilityLabel={`Line width ${opt.label}`}
+              >
                 <View style={[styles.widthSample, { height: Math.max(1.5, opt.value / 3) }]} />
                 <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{opt.label}</Text>
               </Pressable>
@@ -278,7 +355,8 @@ export default function EditorScreen() {
                 style={[styles.chip, selected && styles.chipSelected]}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
-                accessibilityLabel={`Line style ${style}`}>
+                accessibilityLabel={`Line style ${style}`}
+              >
                 <Svg width={28} height={8}>
                   <Line
                     x1={3}
@@ -295,20 +373,6 @@ export default function EditorScreen() {
               </Pressable>
             );
           })}
-          <Pressable
-            onPress={() => setVertical((v) => !v)}
-            style={[styles.chip, vertical && styles.chipSelected]}
-            accessibilityRole="button"
-            accessibilityState={{ selected: vertical }}
-            accessibilityLabel="Vertical lines">
-            <Text style={[styles.chipText, vertical && styles.chipTextSelected]}>
-              {vertical
-                ? perspective === 3 && overlay.stars.some((s) => s.label === 'VP3')
-                  ? '↕ to VP3'
-                  : '↕ parallel'
-                : '↕ vertical'}
-            </Text>
-          </Pressable>
         </ScrollView>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
@@ -323,7 +387,8 @@ export default function EditorScreen() {
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
                 accessibilityLabel={`Line color ${color}`}
-                style={[styles.swatchRing, selected && { borderColor: BLUE }]}>
+                style={[styles.swatchRing, selected && { borderColor: BLUE }]}
+              >
                 <View style={[styles.swatch, { backgroundColor: color }]} />
               </Pressable>
             );
@@ -333,7 +398,9 @@ export default function EditorScreen() {
         <View style={styles.actions}>
           <LinkButton label="Undo" onPress={undo} disabled={lines.length === 0} />
           <LinkButton label="Clear all" onPress={clearAll} disabled={lines.length === 0} color={DANGER} />
-          <Text style={styles.count}>{lines.length} LINE{lines.length === 1 ? '' : 'S'}</Text>
+          <Text style={styles.count}>
+            {lines.length} LINE{lines.length === 1 ? '' : 'S'}
+          </Text>
           {saving ? (
             <ActivityIndicator color={BLUE} />
           ) : (
@@ -379,6 +446,16 @@ const styles = StyleSheet.create({
   chipSelected: { borderColor: BLUE },
   chipText: { fontFamily: Fonts.sans, fontSize: 13, color: INK },
   chipTextSelected: { color: BLUE, fontWeight: '700', textDecorationLine: 'underline' },
+  pointChip: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pointChipSelected: { borderWidth: 3 },
+  pointChipText: { fontFamily: Fonts.mono, fontSize: 10, fontWeight: '700', color: WHITE },
   widthSample: { width: 18, backgroundColor: INK, borderRadius: 2 },
   swatchRing: {
     width: 32,

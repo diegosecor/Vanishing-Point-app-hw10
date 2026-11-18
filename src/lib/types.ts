@@ -16,19 +16,31 @@ export type SavedStar = {
   id: string;
   label: StarLabel;
   color: string;
+  /** Vanishing point position in overlay units; may be far outside the frame. */
   x: number;
   y: number;
-  /** Angle (radians) of the horizon direction when captured; fan lines are relative to it. */
-  angle: number;
-  /** Index (0-11) of the selected fan line, or null. */
-  selectedLine: number | null;
+  /** Whether the point marker itself is drawn (it is in view and in front of the camera). */
+  visible: boolean;
+};
+
+/** A guide line already clipped to the frame, in overlay units. */
+export type Guide = {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  color: string;
+  width: number;
+  opacity: number;
 };
 
 export type Overlay = {
   /** Frame height in units (width is always OVERLAY_WIDTH). */
   height: number;
-  horizon: { x1: number; y1: number; x2: number; y2: number };
+  /** Long horizon segment, or null when the horizon is out of view (camera pointing straight up/down). */
+  horizon: { x1: number; y1: number; x2: number; y2: number } | null;
   stars: SavedStar[];
+  guides: Guide[];
 };
 
 export type DrawnLine = {

@@ -57,21 +57,15 @@ export function distanceToSegment(p: Point, a: Point, b: Point): number {
   return distance(p, { x: a.x + vx * t, y: a.y + vy * t });
 }
 
-/** Points for a 5-point star polygon. */
-export function starPolygon(cx: number, cy: number, outer: number, inner: number): string {
-  const pts: string[] = [];
-  for (let i = 0; i < 10; i++) {
-    const r = i % 2 === 0 ? outer : inner;
-    const a = -Math.PI / 2 + (i * Math.PI) / 5;
-    pts.push(`${(cx + Math.cos(a) * r).toFixed(1)},${(cy + Math.sin(a) * r).toFixed(1)}`);
-  }
-  return pts.join(' ');
+/** Current time; only call from event handlers. */
+export function timestamp(): number {
+  return Date.now();
 }
 
 export function formatDate(ms: number): string {
   const d = new Date(ms);
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(
-    d.getMinutes()
+    d.getMinutes(),
   )}`;
 }

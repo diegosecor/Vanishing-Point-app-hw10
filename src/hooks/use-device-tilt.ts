@@ -1,38 +1,59 @@
 import * as Haptics from 'expo-haptics';
-import { DeviceMotion } from 'expo-sensors';
+import { DeviceMotion, type DeviceMotionMeasurement } from 'expo-sensors';
 import { useEffect, useRef, useState } from 'react';
 
+import { blendRotation, eulerToMatrix, nextUiRotation, type Mat3, type UiRotation } from '@/lib/projection';
+
 export type Tilt = {
-  /** World "up" expressed in device coordinates (x right, y toward top of phone). */
-  upX: number;
-  upY: number;
-  /** Elevation of the back camera's view direction, radians (positive = looking up). */
-  elevation: number;
-  /** Sideways rotation of the phone, radians (0 = perfectly level). */
+  /** Device → world rotation (world z = up, x/y fixed to the compass). */
+  R: Mat3;
+  /** Sideways tilt for portrait use, radians (0 = level). Also the on-screen angle of the horizon. */
   roll: number;
+  /** Sideways tilt for landscape use, radians (0 = level). */
+  landscapeRoll: number;
 };
 
 export type TiltState = {
   tilt: Tilt;
   status: 'starting' | 'ok' | 'unavailable' | 'denied';
-  isLevel: boolean;
+  portraitLevel: boolean;
+  landscapeLevel: boolean;
+  uiRotation: UiRotation;
 };
 
-const UPRIGHT: Tilt = { upX: 0, upY: 1, elevation: 0, roll: 0 };
-const SMOOTHING = 0.25;
+/** Upright portrait, facing the arbitrary world direction -y. */
+const UPRIGHT: Mat3 = eulerToMatrix(0, Math.PI / 2, 0);
+const SMOOTHING = 0.3;
 const LEVEL_ENTER = (1.0 * Math.PI) / 180;
 const LEVEL_EXIT = (1.6 * Math.PI) / 180;
 
-/**
- * Reads the phone's attitude and returns where the horizon is relative to the
- * camera. Uses the Euler angles (Z-X-Y order, as both iOS and the W3C spec use)
- * to rebuild the gravity direction, which stays stable even when the phone is
- * held upright (where beta/gamma alone hit gimbal lock).
- */
+/** Angles are radians on native; guard in case a platform reports degrees. */
+export function rotationFrom(data: DeviceMotionMeasurement): Mat3 | null {
+  const rot = data.rotation;
+  if (!rot) return null;
+  const big = Math.abs(rot.alpha) > 7 || Math.abs(rot.beta) > 7 || Math.abs(rot.gamma) > 7;
+  const k = big ? Math.PI / 180 : 1;
+  return eulerToMatrix(rot.alpha * k, rot.beta * k, rot.gamma * k);
+}
+
+function hysteresis(prev: boolean, dev: number) {
+  const a = Math.abs(dev);
+  if (!prev && a < LEVEL_ENTER) return true;
+  if (prev && a > LEVEL_EXIT) return false;
+  return prev;
+}
+
+/** Reads the phone's attitude for the live camera: horizon, vanishing points, levels and UI rotation. */
 export function useDeviceTilt(enabled: boolean): TiltState {
-  const [state, setState] = useState<TiltState>({ tilt: UPRIGHT, status: 'starting', isLevel: false });
-  const smooth = useRef({ x: 0, y: 1, z: 0 });
-  const levelRef = useRef(false);
+  const [state, setState] = useState<TiltState>({
+    tilt: { R: UPRIGHT, roll: 0, landscapeRoll: Math.PI / 2 },
+    status: 'starting',
+    portraitLevel: false,
+    landscapeLevel: false,
+    uiRotation: 0,
+  });
+  const smooth = useRef<Mat3 | null>(null);
+  const memory = useRef({ portrait: false, landscape: false, ui: 0 as UiRotation });
 
   useEffect(() => {
     if (!enabled) return;
@@ -57,40 +78,35 @@ export function useDeviceTilt(enabled: boolean): TiltState {
         if (cancelled) return;
         DeviceMotion.setUpdateInterval(33);
         sub = DeviceMotion.addListener((data) => {
-          const rot = data.rotation;
-          if (!rot) return;
-          // Angles are radians on native; guard in case a platform reports degrees.
-          const k = Math.abs(rot.beta) > 7 || Math.abs(rot.gamma) > 7 ? Math.PI / 180 : 1;
-          const b = rot.beta * k;
-          const g = rot.gamma * k;
-          // World up vector in device frame = third row of Rx(beta)*Ry(gamma).
-          const ux = -Math.cos(b) * Math.sin(g);
-          const uy = Math.sin(b);
-          const uz = Math.cos(b) * Math.cos(g);
+          const raw = rotationFrom(data);
+          if (!raw) return;
+          const R = smooth.current ? blendRotation(smooth.current, raw, SMOOTHING) : raw;
+          smooth.current = R;
 
-          const sm = smooth.current;
-          sm.x += (ux - sm.x) * SMOOTHING;
-          sm.y += (uy - sm.y) * SMOOTHING;
-          sm.z += (uz - sm.z) * SMOOTHING;
-          const len = Math.hypot(sm.x, sm.y, sm.z) || 1;
-          const x = sm.x / len;
-          const y = sm.y / len;
-          const z = sm.z / len;
+          // World "up" in device coordinates is the third row of R.
+          const ux = R[6];
+          const uy = R[7];
+          const uz = R[8];
+          const roll = Math.atan2(ux, uy);
+          const landscapeRoll = roll >= 0 ? roll - Math.PI / 2 : roll + Math.PI / 2;
 
-          // The back camera looks along device -Z.
-          const elevation = Math.asin(Math.max(-1, Math.min(1, -z)));
-          const roll = Math.atan2(x, y);
-
-          const absRoll = Math.abs(roll);
-          let level = levelRef.current;
-          if (!level && absRoll < LEVEL_ENTER) level = true;
-          else if (level && absRoll > LEVEL_EXIT) level = false;
-          if (level && !levelRef.current) {
+          const mem = memory.current;
+          const ui = nextUiRotation(mem.ui, ux, uy, uz);
+          const portrait = hysteresis(mem.portrait, roll);
+          const landscape = hysteresis(mem.landscape, landscapeRoll);
+          const becameLevel = ui === 0 ? portrait && !mem.portrait : landscape && !mem.landscape;
+          if (becameLevel) {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
           }
-          levelRef.current = level;
+          memory.current = { portrait, landscape, ui };
 
-          setState({ tilt: { upX: x, upY: y, elevation, roll }, status: 'ok', isLevel: level });
+          setState({
+            tilt: { R, roll, landscapeRoll },
+            status: 'ok',
+            portraitLevel: portrait,
+            landscapeLevel: landscape,
+            uiRotation: ui,
+          });
         });
       } catch (e) {
         console.warn('Device motion error', e);

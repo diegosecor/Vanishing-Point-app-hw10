@@ -1,5 +1,13 @@
 import { router } from 'expo-router';
-import { Pressable, StyleSheet, Text, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type StyleProp,
+  type TextStyle,
+  type ViewStyle,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BLUE, Fonts, HAIRLINE, INK, WHITE } from '@/constants/style';
@@ -29,7 +37,8 @@ export function LinkButton({
       hitSlop={10}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
-      style={({ pressed }) => [styles.link, { opacity: disabled ? 0.35 : pressed ? 0.5 : 1 }, style]}>
+      style={({ pressed }) => [styles.link, { opacity: disabled ? 0.35 : pressed ? 0.5 : 1 }, style]}
+    >
       <Text style={[styles.linkText, { color }, textStyle]}>{label}</Text>
     </Pressable>
   );
