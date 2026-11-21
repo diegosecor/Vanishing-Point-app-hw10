@@ -24,28 +24,50 @@ export const Fonts = {
   }),
 };
 
-/** VP1, VP2, VP3 colors. */
+/** Classic vanishing points (camera and editor). */
 export const STAR_LABELS = ['VP1', 'VP2', 'VP3'] as const;
-export const STAR_COLORS: Record<(typeof STAR_LABELS)[number], string> = {
-  VP1: '#FF3D00',
-  VP2: '#00C853',
-  VP3: '#D500F9',
+/** Fisheye (curvilinear) pair: every line becomes an arc through both points. */
+export const FISHEYE_LABELS = ['FE1', 'FE2'] as const;
+export const POINT_LABELS = [...STAR_LABELS, ...FISHEYE_LABELS] as const;
+
+/** Pantone-inspired colors (approximate sRGB of the named Pantone C swatches). */
+export const STAR_COLORS: Record<(typeof POINT_LABELS)[number], string> = {
+  VP1: '#FE5000', // Orange 021
+  VP2: '#0057B8', // 2935
+  VP3: '#EF3340', // Red 032
+  FE1: '#F1C400', // 7406
+  FE2: '#F1C400',
 };
 
-/** Palette for editor lines. */
+/** Horizon line color (Pantone 2995). */
+export const HORIZON_COLOR = '#00A9E0';
+
+/** Palette for editor lines: oranges, yellows, reds and blues, plus white and black. */
 export const LINE_PALETTE = [
-  '#0050FF',
-  '#FF3D00',
-  '#00C853',
-  '#D500F9',
-  '#FFD600',
-  '#00E5FF',
+  '#FE5000', // Orange 021
+  '#FF8200', // 151
+  '#FFC72C', // 123
+  '#EF3340', // Red 032
+  '#C8102E', // 186
+  '#00A9E0', // 2995
+  '#0057B8', // 2935
+  '#001E62', // 2758
   '#FFFFFF',
   '#0B0B0F',
 ];
 
+/** Dark or light text, whichever reads better on a colored chip. */
+export function textOn(hex: string): string {
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return 0.299 * r + 0.587 * g + 0.114 * b > 170 ? '#0B0B0F' : '#FFFFFF';
+}
+
 /** Line thickness options, in overlay units (overlay is 1000 units wide). */
 export const LINE_WIDTHS = [
+  { label: 'XS', value: 2 },
   { label: 'S', value: 4 },
   { label: 'M', value: 8 },
   { label: 'L', value: 14 },

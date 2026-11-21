@@ -54,15 +54,17 @@ export function ScreenHeader({
   title,
   right,
   onCamera = goToCamera,
+  backLabel = '← Camera',
 }: {
   title: string;
   right?: React.ReactNode;
   onCamera?: () => void;
+  backLabel?: string;
 }) {
   const insets = useSafeAreaInsets();
   return (
     <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
-      <LinkButton label="← Camera" onPress={onCamera} style={styles.headerSide} />
+      <LinkButton label={backLabel} onPress={onCamera} style={styles.headerSide} />
       <Text style={styles.title}>{title}</Text>
       <View style={[styles.headerSide, styles.headerRight]}>{right}</View>
     </View>

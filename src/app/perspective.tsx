@@ -1,8 +1,9 @@
+import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RotatedScreen } from '@/components/rotating';
-import { ScreenHeader, goToCamera } from '@/components/ui';
+import { LinkButton, ScreenHeader, goToCamera } from '@/components/ui';
 import { BLUE, Fonts, HAIRLINE, INK, MUTED, WHITE } from '@/constants/style';
 import type { Perspective } from '@/lib/types';
 import { useUiRotation } from '@/hooks/use-ui-rotation';
@@ -66,6 +67,14 @@ export default function PerspectiveScreen() {
               </Pressable>
             );
           })}
+          <LinkButton
+            label="Learn how each perspective works →"
+            onPress={() => router.push('/info')}
+            style={{ alignSelf: 'center', marginTop: 6 }}
+          />
+          <Text style={styles.intro}>
+            Fisheye photos (0.5x lens): add FE1 and FE2 in the editor (Adjust → + Fisheye) and draw with the Arc tool.
+          </Text>
         </ScrollView>
       </View>
     </RotatedScreen>

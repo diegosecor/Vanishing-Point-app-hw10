@@ -4,7 +4,7 @@
  */
 import { Directory, File, Paths } from 'expo-file-system';
 
-import { LINE_PALETTE, LINE_STYLES, LINE_WIDTHS, STAR_LABELS } from '@/constants/style';
+import { LINE_PALETTE, LINE_STYLES, LINE_WIDTHS, POINT_LABELS } from '@/constants/style';
 
 import { FAN_LINE_COUNT, fanAngle } from './geometry';
 import { clipRay } from './projection';
@@ -25,7 +25,7 @@ const PHOTOS_FILE = 'photos.json';
 
 export const DEFAULT_SETTINGS: Settings = {
   perspective: 1,
-  lineWidth: LINE_WIDTHS[1].value,
+  lineWidth: LINE_WIDTHS.find((w) => w.label === 'M')!.value,
   lineStyle: 'solid',
   lineColor: LINE_PALETTE[0],
 };
@@ -102,10 +102,12 @@ function parseSettings(raw: unknown): Settings {
 
 function parseGuide(raw: unknown): Guide | null {
   if (!isObj(raw)) return null;
-  const { x1, y1, x2, y2, color, width, opacity } = raw;
+  const { x1, y1, x2, y2, color, width, opacity, starId } = raw;
   if (!isNum(x1) || !isNum(y1) || !isNum(x2) || !isNum(y2) || !isNum(width) || !isNum(opacity)) return null;
   if (!isStr(color)) return null;
-  return { x1, y1, x2, y2, color, width, opacity };
+  const guide: Guide = { x1, y1, x2, y2, color, width, opacity };
+  if (isStr(starId)) guide.starId = starId;
+  return guide;
 }
 
 /** Photos saved by the first version stored a fan angle per star; rebuild its guide lines. */
@@ -144,7 +146,7 @@ function parseOverlay(raw: unknown): Overlay | null {
   if (Array.isArray(raw.stars)) {
     for (const s of raw.stars) {
       if (!isObj(s) || !isStr(s.id) || !isNum(s.x) || !isNum(s.y) || !isStr(s.color)) continue;
-      if (!(STAR_LABELS as readonly unknown[]).includes(s.label)) continue;
+      if (!(POINT_LABELS as readonly unknown[]).includes(s.label)) continue;
       stars.push({
         id: s.id,
         label: s.label as SavedStar['label'],
@@ -161,10 +163,27 @@ function parseOverlay(raw: unknown): Overlay | null {
 
 function parseLine(raw: unknown): DrawnLine | null {
   if (!isObj(raw)) return null;
-  const { id, x1, y1, x2, y2, width, style, color } = raw;
+  const { id, x1, y1, x2, y2, width, style, color, starId, starId2, kind, via, points } = raw;
   if (!isStr(id) || !isNum(x1) || !isNum(y1) || !isNum(x2) || !isNum(y2) || !isNum(width)) return null;
   if (!(LINE_STYLES as readonly unknown[]).includes(style) || !isStr(color)) return null;
-  return { id, x1, y1, x2, y2, width, style: style as DrawnLine['style'], color };
+  const line: DrawnLine = { id, x1, y1, x2, y2, width, style: style as DrawnLine['style'], color };
+  if (isStr(starId)) line.starId = starId;
+  if (kind === 'arc') {
+    if (!isObj(via) || !isNum(via.x) || !isNum(via.y)) return null;
+    line.kind = 'arc';
+    line.via = { x: via.x, y: via.y };
+    if (isStr(starId2)) line.starId2 = starId2;
+  } else if (kind === 'stroke') {
+    if (!Array.isArray(points)) return null;
+    const pts = points
+      .slice(0, 4000)
+      .filter((q): q is { x: number; y: number } => isObj(q) && isNum(q.x) && isNum(q.y))
+      .map((q) => ({ x: q.x, y: q.y }));
+    if (pts.length === 0) return null;
+    line.kind = 'stroke';
+    line.points = pts;
+  }
+  return line;
 }
 
 function parsePhoto(raw: unknown): PhotoEntry | null {

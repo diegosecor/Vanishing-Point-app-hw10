@@ -10,7 +10,7 @@ import {
   savePhotos,
   saveSettings,
 } from '@/lib/storage';
-import type { Draft, DrawnLine, PhotoEntry, Settings } from '@/lib/types';
+import type { Draft, DrawnLine, Overlay, PhotoEntry, Settings } from '@/lib/types';
 
 type AppStore = {
   ready: boolean;
@@ -21,7 +21,8 @@ type AppStore = {
   setDraft: (draft: Draft | null) => void;
   /** Saves a draft as a new gallery photo, returns its id. */
   saveDraft: (draft: Draft, lines: DrawnLine[]) => Promise<string>;
-  updatePhotoLines: (id: string, lines: DrawnLine[]) => Promise<void>;
+  /** Saves edited lines and the adjusted overlay (points, guides, horizon) of a gallery photo. */
+  updatePhotoEdits: (id: string, lines: DrawnLine[], overlay: Overlay) => Promise<void>;
   deletePhoto: (id: string) => Promise<void>;
 };
 
@@ -97,9 +98,10 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     [commitPhotos],
   );
 
-  const updatePhotoLines = useCallback(
-    async (id: string, lines: DrawnLine[]) => {
-      const next = photosRef.current.map((p) => (p.id === id ? { ...p, lines, updatedAt: Date.now() } : p));
+  const updatePhotoEdits = useCallback(
+    async (id: string, lines: DrawnLine[], overlay: Overlay) => {
+      if (!photosRef.current.some((p) => p.id === id)) throw new Error('This photo no longer exists.');
+      const next = photosRef.current.map((p) => (p.id === id ? { ...p, lines, overlay, updatedAt: Date.now() } : p));
       await commitPhotos(next);
     },
     [commitPhotos],
@@ -128,10 +130,10 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       updateSettings,
       setDraft,
       saveDraft,
-      updatePhotoLines,
+      updatePhotoEdits,
       deletePhoto,
     }),
-    [ready, settings, photos, draft, updateSettings, saveDraft, updatePhotoLines, deletePhoto],
+    [ready, settings, photos, draft, updateSettings, saveDraft, updatePhotoEdits, deletePhoto],
   );
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

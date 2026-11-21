@@ -46,6 +46,13 @@
         {
           "motionPermission": "Vanishing Point uses motion sensors to keep the horizon line level as you tilt the phone."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Vanishing Point opens photos you choose so you can find their vanishing points.",
+          "microphonePermission": false
+        }
       ]
     ],
     "experiments": {

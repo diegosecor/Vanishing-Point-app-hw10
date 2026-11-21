@@ -23,6 +23,7 @@ function RootStack() {
       {/* Swipe-back is off so unsaved lines can't be lost without the discard prompt. */}
       <Stack.Screen name="editor" options={{ gestureEnabled: false }} />
       <Stack.Screen name="perspective" options={{ presentation: 'modal' }} />
+      <Stack.Screen name="info" options={{ presentation: 'modal' }} />
     </Stack>
   );
 }

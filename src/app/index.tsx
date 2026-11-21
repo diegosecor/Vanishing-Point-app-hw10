@@ -1,5 +1,6 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { Image } from 'expo-image';
 import { router, useIsFocused } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -17,6 +18,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Icon } from '@/components/icons';
 import { LEVEL_BOX_WIDTH, LevelIndicator } from '@/components/level-indicator';
 import { OverlayLayer } from '@/components/overlay-layer';
 import { RotatedScreen, RotatingView } from '@/components/rotating';
@@ -65,6 +67,12 @@ const MOVE_SLOP = 8;
 const LONG_PRESS_MS = 550;
 const UP: Vec3 = [0, 0, 1];
 
+/** Lens choices, like the iPhone camera app. 2x is a center crop of the main lens. */
+type Lens = '0.5' | '1' | '2';
+/** Focal length relative to the main (1x) lens. */
+const LENS_SCALE: Record<Lens, number> = { '0.5': 0.5, '1': 1, '2': 2 };
+const ULTRA_WIDE = 'UltraWide';
+
 /** Focal length in px for a camera preview that fills the frame (aspect-fill). */
 function focalLength(w: number, h: number) {
   return h / w >= 4 / 3 ? h / (2 * TAN_HALF_LONG) : w / (2 * TAN_HALF_SHORT);
@@ -87,6 +95,9 @@ export default function CameraScreen() {
   const [stars, setStars] = useState<LiveStar[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
+  const [lens, setLens] = useState<Lens>('1');
+  /** deviceType of the 0.5x ultra-wide lens, when the phone has one. */
+  const [ultraWide, setUltraWide] = useState<string | null>(null);
   const askedOnce = useRef(false);
   const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const gesture = useRef<{
@@ -118,7 +129,7 @@ export default function CameraScreen() {
   const rect = { w, h };
   const base: Camera = {
     R: tilt.R,
-    f: w > 0 ? focalLength(w, h) : 1,
+    f: w > 0 ? focalLength(w, h) * LENS_SCALE[lens] : 1,
     cx: w / 2,
     cy: h / 2,
     shift: { x: 0, y: 0 },
@@ -167,9 +178,10 @@ export default function CameraScreen() {
         color,
         width: selected ? 7.5 : 2.5,
         opacity: hasSelection && !selected ? 0.22 : 0.85,
+        starId: star.id,
       });
     }
-    for (const seg of custom) guides.push({ ...scaleSeg(seg), color, width: 5, opacity: 1 });
+    for (const seg of custom) guides.push({ ...scaleSeg(seg), color, width: 5, opacity: 1, starId: star.id });
   }
   const overlay: Overlay = {
     height: h * k,
@@ -352,10 +364,20 @@ export default function CameraScreen() {
     gesture.current = null;
   }
 
-  function undoLine() {
-    if (!active || active.custom.length === 0) return;
-    const id = active.id;
-    setStars((prev) => prev.map((s) => (s.id === id ? { ...s, custom: s.custom.slice(0, -1) } : s)));
+  function rememberLenses(lenses: { deviceType: string }[]) {
+    setUltraWide(lenses.find((l) => l.deviceType.includes(ULTRA_WIDE))?.deviceType ?? null);
+  }
+
+  /** The 2x lens shows the center of the main lens, so the photo is cropped the same way. */
+  async function cropCenter(uri: string): Promise<string> {
+    const full = await ImageManipulator.manipulate(uri).renderAsync();
+    const cw = Math.round(full.width / 2);
+    const ch = Math.round(full.height / 2);
+    const cropped = await ImageManipulator.manipulate(full)
+      .crop({ originX: Math.round(full.width / 4), originY: Math.round(full.height / 4), width: cw, height: ch })
+      .renderAsync();
+    const saved = await cropped.saveAsync({ format: SaveFormat.JPEG, compress: 0.9 });
+    return saved.uri;
   }
 
   // ---------- actions ----------
@@ -366,7 +388,8 @@ export default function CameraScreen() {
       const snapshot = overlay;
       const picture = await cameraRef.current.takePictureAsync({ quality: 0.85 });
       if (!picture?.uri) throw new Error('The camera did not return a photo.');
-      setDraft({ uri: picture.uri, createdAt: timestamp(), perspective, overlay: snapshot });
+      const uri = lens === '2' ? await cropCenter(picture.uri) : picture.uri;
+      setDraft({ uri, createdAt: timestamp(), perspective, overlay: snapshot });
       router.push({ pathname: '/editor', params: { source: 'draft' } });
     } catch (e) {
       Alert.alert('Could not take the photo', e instanceof Error ? e.message : 'Please try again.');
@@ -423,20 +446,28 @@ export default function CameraScreen() {
   } else {
     previewContent = (
       <>
-        <CameraView
-          ref={cameraRef}
-          style={StyleSheet.absoluteFill}
-          facing="back"
-          mode="picture"
-          active={focused}
-          animateShutter
-          responsiveOrientationWhenOrientationLocked={false}
-          onCameraReady={() => {
-            setCameraReady(true);
-            setCameraError(null);
-          }}
-          onMountError={(e) => setCameraError(e.message || 'The camera could not start.')}
-        />
+        <View style={[StyleSheet.absoluteFill, lens === '2' && styles.zoom2]}>
+          <CameraView
+            ref={cameraRef}
+            style={StyleSheet.absoluteFill}
+            facing="back"
+            mode="picture"
+            active={focused}
+            animateShutter
+            responsiveOrientationWhenOrientationLocked={false}
+            selectedLens={lens === '0.5' && ultraWide ? ultraWide : undefined}
+            onAvailableLensesChanged={(e) => rememberLenses(e.lenses)}
+            onCameraReady={() => {
+              setCameraReady(true);
+              setCameraError(null);
+              cameraRef.current
+                ?.getAvailableLensesAsync()
+                .then(rememberLenses)
+                .catch(() => {});
+            }}
+            onMountError={(e) => setCameraError(e.message || 'The camera could not start.')}
+          />
+        </View>
         {w > 0 && <OverlayLayer overlay={overlay} activeStarId={active?.id} labelRotation={uiRotation} />}
         <View
           style={StyleSheet.absoluteFill}
@@ -492,6 +523,33 @@ export default function CameraScreen() {
           />
         </View>
 
+        {granted && (
+          <View style={styles.lensRow}>
+            {(['0.5', '1', '2'] as Lens[])
+              .filter((l) => l !== '0.5' || ultraWide)
+              .map((l) => {
+                const on = lens === l;
+                return (
+                  <Pressable
+                    key={l}
+                    onPress={() => setLens(l)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: on }}
+                    accessibilityLabel={`${l}x lens`}
+                    style={[styles.lensBtn, on && styles.lensBtnOn]}
+                  >
+                    <RotatingView rotation={uiRotation}>
+                      <Text style={[styles.lensText, on && styles.lensTextOn]}>
+                        {l === '0.5' ? '.5' : l}
+                        {on ? '×' : ''}
+                      </Text>
+                    </RotatingView>
+                  </Pressable>
+                );
+              })}
+          </View>
+        )}
+
         {granted && hintText !== '' && (
           <View style={StyleSheet.absoluteFill} pointerEvents="none">
             <RotatedScreen rotation={uiRotation}>
@@ -539,17 +597,14 @@ export default function CameraScreen() {
           })}
           <View style={{ flex: 1 }} />
           <Pressable
-            onPress={undoLine}
-            disabled={!active || active.custom.length === 0}
+            onPress={() => router.push('/info')}
             accessibilityRole="button"
-            accessibilityLabel="Undo last line"
-            style={({ pressed }) => [
-              styles.undoBtn,
-              { opacity: !active || active.custom.length === 0 ? 0.3 : pressed ? 0.5 : 1 },
-            ]}
+            accessibilityLabel="How perspective works"
+            style={({ pressed }) => [styles.infoBtn, { opacity: pressed ? 0.6 : 1 }]}
           >
-            <RotatingView rotation={uiRotation}>
-              <Text style={styles.undoText}>↶</Text>
+            <RotatingView rotation={uiRotation} style={styles.infoInner}>
+              <Icon name="info" size={20} color={WHITE} />
+              <Text style={styles.infoText}>LEARN</Text>
             </RotatingView>
           </Pressable>
         </View>
@@ -582,7 +637,7 @@ export default function CameraScreen() {
               accessibilityLabel="Move horizon up"
             >
               <RotatingView rotation={uiRotation}>
-                <Text style={styles.arrowText}>▲</Text>
+                <Icon name="up" size={16} />
               </RotatingView>
             </Pressable>
             <Pressable
@@ -592,7 +647,7 @@ export default function CameraScreen() {
               accessibilityLabel="Move horizon down"
             >
               <RotatingView rotation={uiRotation}>
-                <Text style={styles.arrowText}>▼</Text>
+                <Icon name="down" size={16} />
               </RotatingView>
             </Pressable>
           </View>
@@ -687,7 +742,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
     alignItems: 'center',
-    paddingBottom: 12,
+    paddingBottom: 64,
     paddingHorizontal: 50,
   },
   hint: {
@@ -716,16 +771,31 @@ const styles = StyleSheet.create({
   chipActive: { borderWidth: 3 },
   chipText: { fontFamily: Fonts.mono, fontSize: 10, fontWeight: '700', color: WHITE },
   chipTextEmpty: { color: MUTED },
-  undoBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: HAIRLINE,
+  infoBtn: { height: 40, borderRadius: 20, backgroundColor: BLUE, paddingHorizontal: 14, justifyContent: 'center' },
+  infoInner: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  infoText: { fontFamily: Fonts.mono, fontSize: 11, fontWeight: '700', color: WHITE, letterSpacing: 1 },
+  zoom2: { transform: [{ scale: 2 }] },
+  lensRow: {
+    position: 'absolute',
+    bottom: 12,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderRadius: 22,
+    padding: 4,
+  },
+  lensBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
   },
-  undoText: { color: BLUE, fontSize: 20 },
+  lensBtnOn: { backgroundColor: 'rgba(0,0,0,0.75)' },
+  lensText: { fontFamily: Fonts.mono, fontSize: 11, fontWeight: '700', color: WHITE },
+  lensTextOn: { color: '#FFC72C', fontSize: 12 },
   mainRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   thumb: {
     width: 54,
@@ -749,7 +819,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  arrowText: { color: BLUE, fontSize: 13 },
   shutter: {
     width: 76,
     height: 76,

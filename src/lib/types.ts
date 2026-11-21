@@ -1,8 +1,8 @@
-import type { LINE_STYLES, STAR_LABELS } from '@/constants/style';
+import type { LINE_STYLES, POINT_LABELS } from '@/constants/style';
 
 export type Perspective = 1 | 2 | 3;
 export type LineStyle = (typeof LINE_STYLES)[number];
-export type StarLabel = (typeof STAR_LABELS)[number];
+export type StarLabel = (typeof POINT_LABELS)[number];
 
 export type Point = { x: number; y: number };
 
@@ -32,6 +32,8 @@ export type Guide = {
   color: string;
   width: number;
   opacity: number;
+  /** The vanishing point this guide starts from, so it follows when the point is moved. */
+  starId?: string;
 };
 
 export type Overlay = {
@@ -52,6 +54,16 @@ export type DrawnLine = {
   width: number;
   style: LineStyle;
   color: string;
+  /** Set when the line was drawn from a vanishing point; it follows when the point is moved. */
+  starId?: string;
+  /** Straight line (default), a fisheye 'arc' through two points, or a freehand brush 'stroke'. */
+  kind?: 'arc' | 'stroke';
+  /** Arc: the second fisheye point (the first is starId). x1/y1 and x2/y2 are the two points. */
+  starId2?: string;
+  /** Arc: a point the arc passes through (sets how much it bends). */
+  via?: Point;
+  /** Stroke: the freehand path. */
+  points?: Point[];
 };
 
 export type PhotoEntry = {
